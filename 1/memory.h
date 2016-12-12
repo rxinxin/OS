@@ -13,11 +13,11 @@ enum {
   PAGE_SIZE = 4096,
   PAGE_N_ENTRIES = (PAGE_SIZE / sizeof(uint32_t)),
   SECTORS_PER_PAGE = (PAGE_SIZE / SECTOR_SIZE),
- 
+
   PTABLE_SPAN = (PAGE_SIZE * PAGE_N_ENTRIES), /* how many page_entries can per page stores */
- 
+
   /* page directory/table entry bits (PMSA p.235 and p.240) */
-  PE_P = 1 << 0, /* present */
+  PE_P = 1 << 0, /* present */ // Page is resident in memory and not swapped out
   PE_RW = 1 << 1,  /* read/write */
   PE_US = 1 << 2,  /* user/supervisor */
   PE_PWT = 1 << 3, /* page write-through */
@@ -42,7 +42,7 @@ enum {
   PAGE_TABLE_MASK = 0x003ff000, /* page table mask */
   PAGE_MASK = 0x00000fff,   /* page offset mask */
   /* used to extract the 10 lsb of a page directory entry */
-  MODE_MASK = 0x000003ff,  
+  MODE_MASK = 0x000003ff,
 
   PAGE_TABLE_SIZE = (1024 * 4096 - 1) /* size of a page table in bytes */
 };
@@ -50,7 +50,12 @@ enum {
 
 /* TODO: Structure of an entry in the page map */
 typedef struct {
-  
+	uint32_t *vaddr;
+	uint32_t *paddr;
+	uint32_t swap_loc;
+	bool_t pinned;
+	page_map_entry_t *previous;
+	page_map_entry_t *next;
 } page_map_entry_t;
 
 
@@ -76,12 +81,12 @@ int page_alloc(int pinned);
 void init_memory(void);
 
 /* Set up a page directory and page table for the given process. Fill in
- * any necessary information in the pcb. 
+ * any necessary information in the pcb.
  */
 void setup_page_table(pcb_t * p);
 
 /* Swap into a free page upon a page fault.
- * This method is called from interrupt.c: exception_14(). 
+ * This method is called from interrupt.c: exception_14().
  * Should handle demand paging.
  */
 void page_fault_handler(void);

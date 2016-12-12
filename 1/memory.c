@@ -4,11 +4,11 @@
 
 /* memory.c
  *
- * Note: 
- * There is no separate swap area. When a data page is swapped out, 
- * it is stored in the location it was loaded from in the process' 
- * image. This means it's impossible to start two processes from the 
- * same image without screwing up the running. It also means the 
+ * Note:
+ * There is no separate swap area. When a data page is swapped out,
+ * it is stored in the location it was loaded from in the process'
+ * image. This means it's impossible to start two processes from the
+ * same image without screwing up the running. It also means the
  * disk image is read once. And that we cannot use the program disk.
  *
  */
@@ -35,6 +35,7 @@ static uint32_t *kernel_ptabs[N_KERNEL_PTS];
 
 
 //other global variables...
+static page_map_entry_t *page_map_pointer;
 
 /* Main API */
 
@@ -76,10 +77,10 @@ void set_ptab_entry_flags(uint32_t * pdir, uint32_t vaddr, uint32_t mode){
 }
 
 /* Initialize a page table entry
- *  
+ *
  * 'vaddr' is the virtual address which is mapped to the physical
  * address 'paddr'. 'mode' sets bit [12..0] in the page table entry.
- *   
+ *
  * If user is nonzero, the page is mapped as accessible from a user
  * application.
  */
@@ -91,12 +92,11 @@ void init_ptab_entry(uint32_t * table, uint32_t vaddr,
   flush_tlb_entry(vaddr);
 }
 
-/* Insert a page table entry into the page directory. 
- *   
+/* Insert a page table entry into the page directory.
+ *
  * 'mode' sets bit [12..0] in the page table entry.
  */
-void insert_ptab_dir(uint32_t * dir, uint32_t *tab, uint32_t vaddr, 
-		       uint32_t mode){
+void insert_ptab_dir(uint32_t * dir, uint32_t *tab, uint32_t vaddr, uint32_t mode){
 
   uint32_t access = mode & MODE_MASK;
   int idx = get_dir_idx(vaddr);
@@ -105,46 +105,75 @@ void insert_ptab_dir(uint32_t * dir, uint32_t *tab, uint32_t vaddr,
 }
 
 /* TODO: Allocate a page. Return page index in the page_map directory.
- * 
- * Marks page as pinned if pinned == TRUE. 
- * Swap out a page if no space is available. 
+ *
+ * Marks page as pinned if pinned == TRUE.
+ * Swap out a page if no space is available.
  */
 int page_alloc(int pinned){
   // define some local needed variables
 
   // find an availabe physical page
-  
+
   // initialize a physical page (wirte infomation to page_map)
-  
+
   // zero-out the process page
-  
-  return free_index;
+
+//   return free_index;
 }
 
 /* TODO: Set up kernel memory for kernel threads to run.
  *
- * This method is only called once by _start() in kernel.c, and is only 
+ * This method is only called once by _start() in kernel.c, and is only
  * supposed to set up the page directory and page tables for the kernel.
  */
 void init_memory(void){
-  // initialize all pageable pages to a default state
-  
-  // pin one page for the kernel page directory
+	// initialize all pageable pages to a default state
+	page_map_entry_t *pm;
+	int i;
+	for (i = 0; i < PAGEABLE_PAGES; i++)
+	{
+		pm = &page_map[i];
+		pm->previous = NULL;
+		pm->next = NULL;
+		pm->paddr = (uint32_t *)(MEM_START + PAGE_SIZE * i);
+	}
 
-  // zero-out the kernel page directory
-
-  // pin N_KERNEL_PTS pages for kernel page tables
-
+	// pin one page for the kernel page directory
+	pm = &page_map[0];
+	pm->pinned = TRUE;
+	pm->previous = pm;
+	pm->next = pm;
+	pm->vaddr = (uint32_t *)0;
+	page_map_pointer = pm;
+	// zero-out the kernel page directory
+	for (i = 0; i < N_KERNEL_PTS; i++)
+		*(pm->paddr + 4 * i) = ((uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK) & PE_P;
+	for (; i < PAGE_N_ENTRIES; i++)
+		*(pm->paddr + 4 * i) = 0;
+	// pin N_KERNEL_PTS pages for kernel page tables
+	for (i = 0; i < N_KERNEL_PTS; i++)
+	{
+		pm = &page_map[i];
+		pm->previous = page_map_pointer->previous;
+		page_map_pointer->previous = pm;
+		pm->next = page_map_pointer;
+		pm->pinned = TRUE;
+		// initialize the page table
+		int j;
+		for (j = 0; j < MEM_START / PAGE_SIZE; j++)
+			*(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK;
+		page_map_pointer = pm;
+	}
 }
 
-/* TODO: Set up a page directory and page table for a new 
+/* TODO: Set up a page directory and page table for a new
  * user process or thread. */
 void setup_page_table(pcb_t * p){
   // special case for thread virtual memory setup
 }
 
 /* TODO: Swap into a free page upon a page fault.
- * This method is called from interrupt.c: exception_14(). 
+ * This method is called from interrupt.c: exception_14().
  * Should handle demand paging.
  */
 void page_fault_handler(void){
@@ -176,10 +205,10 @@ uint32_t get_ptab_entry(uint32_t * pdir, uint32_t vaddr) {
 }
 
 /* TODO: Swap i-th page out to disk.
- *   
+ *
  * Write the page back to the process image.
  * There is no separate swap space on the USB.
- * 
+ *
  */
 void page_swap_out(int i){
 

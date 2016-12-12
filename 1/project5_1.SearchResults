@@ -1,0 +1,2 @@
+---- PAGE_TABLE_SIZE Matches (1 in 1 files) ----
+memory.h:  PAGE_TABLE_SIZE = (1024 * 4096 - 1) /* size of a page table in bytes */
