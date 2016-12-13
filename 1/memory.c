@@ -51,7 +51,7 @@ uint32_t get_tab_idx(uint32_t vaddr){
 
 /* TODO: Returns physical address of page number i */
 uint32_t* page_addr(int i){
-
+	return page_map[i].paddr;
 }
 
 /* Set flags in a page table entry to 'mode' */
@@ -108,15 +108,28 @@ void insert_ptab_dir(uint32_t * dir, uint32_t *tab, uint32_t vaddr, uint32_t mod
  * Swap out a page if no space is available.
  */
 int page_alloc(int pinned){
-  // define some local needed variables
-
-  // find an availabe physical page
-
-  // initialize a physical page (wirte infomation to page_map)
-
-  // zero-out the process page
-
-//   return free_index;
+	// define some local needed variables
+	page_map_entry_t *pm;
+	int free_index;
+	// find an availabe physical page
+	int i;
+	for (i = 0; i < PAGEABLE_PAGES; i++)
+		if (!page_map[i].used)
+			break;
+	ASSERT2(i < PAGEABLE_PAGES, "Out of pageable pages");
+	free_index = i;
+	pm = &page_map[i];
+	// initialize a physical page (wirte infomation to page_map)
+	pm->used = TRUE;
+	pm->pinned = pinned;
+	pm->previous = page_map_pointer->previous;
+	page_map_pointer->previous = pm;
+	pm->next = page_map_pointer;
+	page_map_pointer = pm;
+	// zero-out the process page
+	for (i = 0; i < PAGE_N_ENTRIES; i++)
+		pm->paddr[i] = 0;
+	return free_index;
 }
 
 /* TODO: Set up kernel memory for kernel threads to run.
