@@ -1,89 +1,17 @@
----- usb_keyboard Matches (17 in 3 files) ----
-usb_hid.c (usb):4
-#include "usb_keyboard.h"
-#include "allocator.h"
-#include "error.h"
-usb_keyboard.c (usb):1
-#include "usb_keyboard.h"
-#include "allocator.h"
-#include "usb_hid.h"
-usb_keyboard.c (usb):15
-  void (*func0)(struct usb_keyboard *, uint8_t);
-  void (*func1)(struct usb_keyboard *, uint8_t);
-};
+---- scsi_read Matches (4 in 3 files) ----
+kernel.c:719
+  rc = scsi_read(0, 1, internal_buf);
+  scrprintf(23, 0, "                 ");
 
-static void normal_h(struct usb_keyboard *, uint8_t);
-static void escape_h(struct usb_keyboard *, uint8_t);
-static void num_lock_h(struct usb_keyboard *, uint8_t);
-static void caps_lock_h(struct usb_keyboard *, uint8_t);
-static void func_h(struct usb_keyboard *, uint8_t);
-static void usb_keyboard_put_char(char);
+kernel.c:729
+  rc = scsi_read(os_size + 1, 1, internal_buf);
+  scrprintf(23, 0, "                 ");
 
-static const struct key_map usb_keyboard[] = {
-  {0x00, 0x00, NULL, NULL}, // 0x00 Reserved (no event indicated)
-  {0x00, 0x00, NULL, NULL}, // 0x01 Keyboard ErrorRollOver
-usb_keyboard.c (usb):191
-static void normal_h(struct usb_keyboard *uk, uint8_t key_code) {
-  char c;
+scsi.c (usb):135
+int scsi_read(int block_start, int block_count, char *data) {
+  int rc;
 
-usb_keyboard.c (usb):195
-    c = usb_keyboard[key_code].key;
-  else
-    c = usb_keyboard[key_code].key1;
-
-  usb_keyboard_put_char(c);
-usb_keyboard.c (usb):202
-static void escape_h(struct usb_keyboard *uk, uint8_t key_code) {
-  /* Put escape character */
-  usb_keyboard_put_char(0x1B);
-usb_keyboard.c (usb):206
-  usb_keyboard_put_char(usb_keyboard[key_code].key1);
-  return;
-}
-usb_keyboard.c (usb):210
-static void num_lock_h(struct usb_keyboard *uk, uint8_t key_code) {
-  uk->num_lock_key = 1 - uk->num_lock_key;
-}
-usb_keyboard.c (usb):214
-static void caps_lock_h(struct usb_keyboard *uk, uint8_t key_code) {
-  uk->caps_lock_key = 1 - uk->caps_lock_key;
-}
-usb_keyboard.c (usb):218
-static void func_h(struct usb_keyboard *uk, uint8_t key_code) {
-  return;
-}
-usb_keyboard.c (usb):223
-  struct usb_keyboard *uk = (struct usb_keyboard *)data;
-  void (*func)(struct usb_keyboard *, uint8_t);
-  int key_pressed;
-  int key_code;
-usb_keyboard.c (usb):247
-      func = usb_keyboard[key_code].func0;
-      /* Keypad keys use also function 1 when NUM LOCK is released */
-      if (key_code >=  0x54 && key_code <= 0x63)
-usb_keyboard.c (usb):251
-          func = usb_keyboard[key_code].func1;
-      
-      if (func != NULL)
-usb_keyboard.c (usb):271
-static void usb_keyboard_reg_interrupt(struct usb_keyboard *uk) {
-  struct usb_dev *udev = uk->hid->udev;
-  struct usb_interrupt *ui;
-usb_keyboard.c (usb):295
-  struct usb_keyboard *uk;
-  DEBUG("Initialising boot keyboard");
-
-  uk = kzalloc(sizeof(struct usb_keyboard));
-  if (uk == NULL)
-    return ERR_NO_MEM;
-usb_keyboard.c (usb):311
-  struct usb_keyboard *uk;
-  struct usb_dev *udev;
-
-  uk = (struct usb_keyboard *)hid->driver_data;
-  udev = hid->udev;
-
-usb_keyboard.h (usb):12
-struct usb_keyboard {
-  struct usb_hid_dev *hid;
-  uint8_t report[BOOT_REPORT_SIZE];
+scsi.h (usb):42
+int scsi_read(int block_start, int block_count, char *data);
+int scsi_write(int block_start, int block_count, char *data);
+void scsi_free();
