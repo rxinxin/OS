@@ -129,8 +129,9 @@ int page_alloc(int pinned){
 	pm->next = page_map_pointer;
 	page_map_pointer = pm;
 	// zero-out the process page
-	for (i = 0; i < PAGE_N_ENTRIES; i++)
-		pm->paddr[i] = 0;
+	bzero((char *)pm->paddr, PAGE_SIZE);
+	// for (i = 0; i < PAGE_N_ENTRIES; i++)
+	// 	pm->paddr[i] = 0;
 	return free_index;
 }
 
@@ -201,11 +202,19 @@ void setup_page_table(pcb_t * p){
 		free_page_index = page_alloc(TRUE);
 		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
 		pm_dir = &page_map[free_page_index];
+		pm_dir->vaddr = 0;
 		p->page_directory = pm_dir->paddr;
+		// allocate a page table of code segment
+		free_page_index = page_alloc(TRUE);
+		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
+		pm_tab = &page_map[free_page_index];
+		pm_tab->vaddr = p->start_pc & PE_BASE_ADDR_MASK;
+		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->user_stack, (PE_P | PE_US));
 		// allocate a page table of user stack
 		free_page_index = page_alloc(TRUE);
 		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
 		pm_tab = &page_map[free_page_index];
+		pm_tab->vaddr = p->user_stack & PE_BASE_ADDR_MASK;
 		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->user_stack, (PE_P | PE_US));
 	}
 }
@@ -243,9 +252,12 @@ int get_disk_sector(page_map_entry_t * page){
 void page_swap_in(int i){
 	page_map_entry_t *pm;
 	pm = &page_map[i];
-	int sector;
-	sector = get_disk_sector(pm);
-	scsi_read(sector, 8, (char *)pm->paddr);
+	int sector_start, sector_num;
+	sector_start = get_disk_sector(pm);
+	sector_num = ((pm->vaddr - PROCESS_START) / PAGE_SIZE) * SECTORS_PER_PAGE;
+	if (sector_num > SECTORS_PER_PAGE)
+		sector_num = SECTORS_PER_PAGE;
+	scsi_read(sector_start, sector_num, (char *)pm->paddr);
 }
 
 uint32_t get_ptab_entry(uint32_t * pdir, uint32_t vaddr) {
@@ -271,9 +283,12 @@ uint32_t get_ptab_entry(uint32_t * pdir, uint32_t vaddr) {
 void page_swap_out(int i){
 	page_map_entry_t *pm;
 	pm = &page_map[i];
-	int sector;
-	sector = get_disk_sector(pm);
-	scsi_write(sector, 8, (char *)pm->paddr);
+	int sector_start, sector_num;
+	sector_start = get_disk_sector(pm);
+	sector_num = ((pm->vaddr - PROCESS_START) / PAGE_SIZE) * SECTORS_PER_PAGE;
+	if (sector_num > SECTORS_PER_PAGE)
+		sector_num = SECTORS_PER_PAGE;
+	scsi_write(sector_start, sector_num, (char *)pm->paddr);
 }
 
 /* TODO: Decide which page to replace, return the page number  */
