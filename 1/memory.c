@@ -140,6 +140,7 @@ void init_memory(void){
 
 	// pin one page for the kernel page directory
 	pm = &page_map[0];
+	pm->used = TRUE;
 	pm->pinned = TRUE;
 	pm->previous = pm;
 	pm->next = pm;
@@ -147,13 +148,14 @@ void init_memory(void){
 	page_map_pointer = pm;
 	// zero-out the kernel page directory
 	for (i = 0; i < N_KERNEL_PTS; i++)
-		*(pm->paddr + 4 * i) = ((uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK) & PE_P;
+		*(pm->paddr + 4 * i) = (uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK & PE_P;
 	for (; i < PAGE_N_ENTRIES; i++)
 		*(pm->paddr + 4 * i) = 0;
 	// pin N_KERNEL_PTS pages for kernel page tables
 	for (i = 0; i < N_KERNEL_PTS; i++)
 	{
 		pm = &page_map[i];
+		pm->used = TRUE;
 		pm->previous = page_map_pointer->previous;
 		page_map_pointer->previous = pm;
 		pm->next = page_map_pointer;
@@ -161,7 +163,7 @@ void init_memory(void){
 		// initialize the page table
 		int j;
 		for (j = 0; j < MEM_START / PAGE_SIZE; j++)
-			*(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK;
+			*(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK & PE_P;
 		page_map_pointer = pm;
 	}
 }
@@ -169,7 +171,32 @@ void init_memory(void){
 /* TODO: Set up a page directory and page table for a new
  * user process or thread. */
 void setup_page_table(pcb_t * p){
-  // special case for thread virtual memory setup
+	// special case for thread virtual memory setup
+	page_map_entry_t *pm_dir, *pm_tab;
+	int i;
+	for (i = 2; i < PAGEABLE_PAGES; i++)
+		if (!page_map[i]->used)
+		{
+			pm_dir = &page_map[i];
+			break;
+		}
+	for (; i < PAGEABLE_PAGES; i++)
+		if (!page_map[i]->used)
+		{
+			pm_tab = &page_map[i];
+			break;
+		}
+	ASSERT2(i < PAGEABLE_PAGES, "Out of pageable pages");
+
+	pm_dir->used = TRUE;
+	pm_dir->previous = page_map_pointer->previous;
+	page_map_pointer->previous = pm_dir;
+	pm_dir->next = page_map_pointer;
+	pm_dir->pinned = TRUE;
+	for (i = 0; i < PAGE_N_ENTRIES; i++)
+		pm_dir->paddr[i] = 0;
+	insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->base_kernel_stack, PE_P);
+	page_map_pointer = pm;
 }
 
 /* TODO: Swap into a free page upon a page fault.
@@ -182,8 +209,7 @@ void page_fault_handler(void){
 /* Get the sector number on disk of a process image
  * Used for page swapping. */
 int get_disk_sector(page_map_entry_t * page){
-  return page->swap_loc +
-    ((page->vaddr - PROCESS_START) / PAGE_SIZE) * SECTORS_PER_PAGE;
+  // return page->swap_loc + ((page->vaddr - PROCESS_START) / PAGE_SIZE) * SECTORS_PER_PAGE;
 }
 
 /* TODO: Swap from disk into the i-th page using fault address and swap_loc of current running */

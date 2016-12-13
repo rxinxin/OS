@@ -49,13 +49,14 @@ enum {
 
 
 /* TODO: Structure of an entry in the page map */
-typedef struct {
+typedef struct _page_map_entry{
 	uint32_t *vaddr;
 	uint32_t *paddr;
 	uint32_t swap_loc;
 	bool_t pinned;
-	page_map_entry_t *previous;
-	page_map_entry_t *next;
+	bool_t used;
+	struct _page_map_entry *previous;
+	struct _page_map_entry *next;
 } page_map_entry_t;
 
 
