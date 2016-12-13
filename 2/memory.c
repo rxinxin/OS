@@ -52,7 +52,7 @@ uint32_t get_tab_idx(uint32_t vaddr){
 
 /* TODO: Returns physical address of page number i */
 uint32_t* page_addr(int i){
-
+	return page_map[i].paddr;
 }
 
 /* Set flags in a page table entry to 'mode' */
