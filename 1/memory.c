@@ -84,11 +84,9 @@ void set_ptab_entry_flags(uint32_t * pdir, uint32_t vaddr, uint32_t mode){
  * If user is nonzero, the page is mapped as accessible from a user
  * application.
  */
-void init_ptab_entry(uint32_t * table, uint32_t vaddr,
-         uint32_t paddr, uint32_t mode){
+void init_ptab_entry(uint32_t * table, uint32_t vaddr, uint32_t paddr, uint32_t mode){
   int index = get_tab_idx(vaddr);
-  table[index] =
-    (paddr & PE_BASE_ADDR_MASK) | (mode & ~PE_BASE_ADDR_MASK);
+  table[index] = (paddr & PE_BASE_ADDR_MASK) | (mode & ~PE_BASE_ADDR_MASK);
   flush_tlb_entry(vaddr);
 }
 
@@ -133,8 +131,9 @@ void init_memory(void){
 	for (i = 0; i < PAGEABLE_PAGES; i++)
 	{
 		pm = &page_map[i];
-		pm->previous = NULL;
-		pm->next = NULL;
+		pm->used = FALSE;
+		pm->previous = pm;
+		pm->next = pm;
 		pm->paddr = (uint32_t *)(MEM_START + PAGE_SIZE * i);
 	}
 
@@ -144,26 +143,29 @@ void init_memory(void){
 	pm->pinned = TRUE;
 	pm->previous = pm;
 	pm->next = pm;
-	pm->vaddr = (uint32_t *)0;
+	pm->vaddr = 0;
 	page_map_pointer = pm;
 	// zero-out the kernel page directory
 	for (i = 0; i < N_KERNEL_PTS; i++)
-		*(pm->paddr + 4 * i) = (uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK & PE_P;
+		insert_ptab_dir(pm->paddr, page_map[N_KERNEL_PTS + i].paddr, 0, PE_P);
+		// *(pm->paddr + 4 * i) = (uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK & PE_P;
 	for (; i < PAGE_N_ENTRIES; i++)
-		*(pm->paddr + 4 * i) = 0;
+		pm->paddr[i] = 0;
 	// pin N_KERNEL_PTS pages for kernel page tables
 	for (i = 0; i < N_KERNEL_PTS; i++)
 	{
-		pm = &page_map[i];
+		pm = &page_map[1 + i];
 		pm->used = TRUE;
+		pm->pinned = TRUE;
 		pm->previous = page_map_pointer->previous;
 		page_map_pointer->previous = pm;
 		pm->next = page_map_pointer;
-		pm->pinned = TRUE;
+		pm->vaddr = 0;
 		// initialize the page table
 		int j;
-		for (j = 0; j < MEM_START / PAGE_SIZE; j++)
-			*(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK & PE_P;
+		for (j = 0; (PAGE_N_ENTRIES * i + j) < (MEM_START / PAGE_SIZE); j++)
+			init_ptab_entry(pm->paddr, (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), PE_P);
+			// *(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK & PE_P;
 		page_map_pointer = pm;
 	}
 }
@@ -172,31 +174,45 @@ void init_memory(void){
  * user process or thread. */
 void setup_page_table(pcb_t * p){
 	// special case for thread virtual memory setup
-	page_map_entry_t *pm_dir, *pm_tab;
-	int i;
-	for (i = 2; i < PAGEABLE_PAGES; i++)
-		if (!page_map[i]->used)
-		{
-			pm_dir = &page_map[i];
-			break;
-		}
-	for (; i < PAGEABLE_PAGES; i++)
-		if (!page_map[i]->used)
-		{
-			pm_tab = &page_map[i];
-			break;
-		}
-	ASSERT2(i < PAGEABLE_PAGES, "Out of pageable pages");
+	if (p->is_thread)
+	{
+		p->page_directory = page_map[0].paddr;
+	}
+	else
+	{
+		ASSERT2(0, "you get to here..........");
+		page_map_entry_t *pm_dir, *pm_tab;
+		int i;
+		for (i = 2; i < PAGEABLE_PAGES; i++)
+			if (!page_map[i].used)
+			{
+				pm_dir = &page_map[i];
+				break;
+			}
+		for (; i < PAGEABLE_PAGES; i++)
+			if (!page_map[i].used)
+			{
+				pm_tab = &page_map[i];
+				break;
+			}
+		ASSERT2(i < PAGEABLE_PAGES, "Out of pageable pages");
 
-	pm_dir->used = TRUE;
-	pm_dir->previous = page_map_pointer->previous;
-	page_map_pointer->previous = pm_dir;
-	pm_dir->next = page_map_pointer;
-	pm_dir->pinned = TRUE;
-	for (i = 0; i < PAGE_N_ENTRIES; i++)
-		pm_dir->paddr[i] = 0;
-	insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->base_kernel_stack, PE_P);
-	page_map_pointer = pm;
+		pm_dir->used = TRUE;
+		pm_dir->previous = page_map_pointer->previous;
+		page_map_pointer->previous = pm_dir;
+		pm_dir->next = page_map_pointer;
+		pm_dir->pinned = TRUE;
+		for (i = 0; i < PAGE_N_ENTRIES; i++)
+			pm_dir->paddr[i] = 0;
+		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->base_kernel_stack, PE_P);
+		page_map_pointer = pm_dir;
+
+		pm_tab->used = TRUE;
+		pm_tab->previous = page_map_pointer->previous;
+		page_map_pointer->previous = pm_tab;
+		pm_tab->next = page_map_pointer;
+		pm_tab->pinned = TRUE;
+	}
 }
 
 /* TODO: Swap into a free page upon a page fault.

@@ -50,7 +50,7 @@ enum {
 
 /* TODO: Structure of an entry in the page map */
 typedef struct _page_map_entry{
-	uint32_t *vaddr;
+	uint32_t vaddr;
 	uint32_t *paddr;
 	uint32_t swap_loc;
 	bool_t pinned;
