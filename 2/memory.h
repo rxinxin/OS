@@ -55,8 +55,8 @@ typedef struct page_map_entry_t{
 	uint32_t swap_loc;
 	bool_t pinned;
 	bool_t used;
-	page_map_entry_t *previous;
-	page_map_entry_t *next;
+	struct page_map_entry_t *previous;
+	struct page_map_entry_t *next;
 } page_map_entry_t;
 
 /* Prototypes */
