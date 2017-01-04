@@ -36,6 +36,7 @@ static uint32_t *kernel_ptabs[N_KERNEL_PTS];
 
 //other global variables...
 static page_map_entry_t *page_map_pointer;
+static lock_t l;
 
 
 /* Main API */
@@ -52,7 +53,7 @@ uint32_t get_tab_idx(uint32_t vaddr){
 
 /* TODO: Returns physical address of page number i */
 uint32_t* page_addr(int i){
-	return MEM_START + PAGE_SIZE * i;
+	return (uint32_t *)(MEM_START + PAGE_SIZE * i);
 }
 
 /* Set flags in a page table entry to 'mode' */
@@ -85,11 +86,9 @@ void set_ptab_entry_flags(uint32_t * pdir, uint32_t vaddr, uint32_t mode){
  * If user is nonzero, the page is mapped as accessible from a user
  * application.
  */
-void init_ptab_entry(uint32_t * table, uint32_t vaddr,
-         uint32_t paddr, uint32_t mode){
+void init_ptab_entry(uint32_t * table, uint32_t vaddr, uint32_t paddr, uint32_t mode){
   int index = get_tab_idx(vaddr);
-  table[index] =
-    (paddr & PE_BASE_ADDR_MASK) | (mode & ~PE_BASE_ADDR_MASK);
+  table[index] = (paddr & PE_BASE_ADDR_MASK) | (mode & ~PE_BASE_ADDR_MASK);
   flush_tlb_entry(vaddr);
 }
 
@@ -115,7 +114,7 @@ int page_alloc(int pinned){
 	// find an availabe physical page
 	int i;
 	for (i = 0; i < PAGEABLE_PAGES; i++)
-		if (!page_map[i].used)
+		if (page_map[i].used != TRUE)
 			break;
 	if (i >= PAGEABLE_PAGES)
 		return -1; // no pageable pages
@@ -129,9 +128,8 @@ int page_alloc(int pinned){
 	pm->next = page_map_pointer;
 	page_map_pointer = pm;
 	// zero-out the process page
-	bzero((char *)pm->paddr, PAGE_SIZE);
-	// for (i = 0; i < PAGE_N_ENTRIES; i++)
-	// 	pm->paddr[i] = 0;
+	for (i = 0; i < PAGE_N_ENTRIES; i++)
+		pm->paddr[i] = 0;
 	return free_index;
 }
 
@@ -163,8 +161,7 @@ void init_memory(void){
 	page_map_pointer = pm;
 	// zero-out the kernel page directory
 	for (i = 0; i < N_KERNEL_PTS; i++)
-		insert_ptab_dir(pm->paddr, page_map[N_KERNEL_PTS + i].paddr, 0, PE_P);
-		// *(pm->paddr + 4 * i) = (uint32_t)(page_map[N_KERNEL_PTS + i].paddr) & PAGE_DIRECTORY_MASK & PE_P;
+		insert_ptab_dir(pm->paddr, page_map[i + 1].paddr, (i << PAGE_DIRECTORY_BITS), (PE_P | PE_RW));
 	for (; i < PAGE_N_ENTRIES; i++)
 		pm->paddr[i] = 0;
 	// pin N_KERNEL_PTS pages for kernel page tables
@@ -176,12 +173,16 @@ void init_memory(void){
 		pm->previous = page_map_pointer->previous;
 		page_map_pointer->previous = pm;
 		pm->next = page_map_pointer;
-		pm->vaddr = 0;
+		pm->vaddr = i << PAGE_DIRECTORY_BITS;
+		pm->dir_addr = page_map[0].paddr;
 		// initialize the page table
 		int j;
-		for (j = 0; (PAGE_N_ENTRIES * i + j) < (MEM_START / PAGE_SIZE); j++)
-			init_ptab_entry(pm->paddr, (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), PE_P);
-			// *(pm->paddr + 4 * j) = (uint32_t)(PAGE_SIZE * j) & PAGE_TABLE_MASK & PE_P;
+		for (j = 0; (PAGE_N_ENTRIES * i + j) < (SCREEN_ADDR / PAGE_SIZE); j++)
+			init_ptab_entry(pm->paddr, (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j),
+				(PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), (PE_P | PE_RW));
+		for (; (PAGE_N_ENTRIES * i + j) < (MEM_START / PAGE_SIZE); j++)
+			init_ptab_entry(pm->paddr, (PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j),
+				(PAGE_SIZE * PAGE_N_ENTRIES * i + PAGE_SIZE * j), (PE_P | PE_RW | PE_US));
 		page_map_pointer = pm;
 	}
 }
@@ -196,27 +197,53 @@ void setup_page_table(pcb_t * p){
 	}
 	else
 	{
-		page_map_entry_t *pm_dir, *pm_tab;
+		page_map_entry_t *pm_dir, *pm_tab, *pm;
 		int free_page_index;
 		// allocate a page table directory
 		free_page_index = page_alloc(TRUE);
-		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
 		pm_dir = &page_map[free_page_index];
-		pm_dir->vaddr = 0;
-		p->page_directory = pm_dir->paddr;
+		pm_dir->swap_loc = p->swap_loc;
+		pm_dir->vaddr = pm_dir->paddr;
+		pm_dir->dir_addr = pm_dir->paddr;
+
+		// // allocate a page table of kernel stack
+		// free_page_index = page_alloc(TRUE);
+		// pm_tab = &page_map[free_page_index];
+		// pm_tab->swap_loc = p->swap_loc;
+		// pm_tab->vaddr = p->kernel_stack & PE_BASE_ADDR_MASK;
+		// pm_tab->dir_addr = pm_dir->paddr;
+		// insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->kernel_stack, (PE_P | PE_RW | PE_US));
 		// allocate a page table of code segment
 		free_page_index = page_alloc(TRUE);
-		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
 		pm_tab = &page_map[free_page_index];
+		pm_tab->swap_loc = p->swap_loc;
 		pm_tab->vaddr = p->start_pc & PE_BASE_ADDR_MASK;
-		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->user_stack, (PE_P | PE_RW | PE_US));
+		pm_tab->dir_addr = pm_dir->paddr;
+		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->start_pc, (PE_P | PE_RW | PE_US));
 		// allocate a page table of user stack
 		free_page_index = page_alloc(TRUE);
-		ASSERT2(free_page_index >= 0, "set_up_page_table: no pageable pages!");
 		pm_tab = &page_map[free_page_index];
+		pm_tab->swap_loc = p->swap_loc;
 		pm_tab->vaddr = p->user_stack & PE_BASE_ADDR_MASK;
+		pm_tab->dir_addr = pm_dir->paddr;
 		insert_ptab_dir(pm_dir->paddr, pm_tab->paddr, p->user_stack, (PE_P | PE_RW | PE_US));
+
+		// allocate pages of user stack
+		int i;
+		for (i = 0; i < N_PROCESS_STACK_PAGES; i++)
+		{
+			free_page_index = page_alloc(TRUE);
+			pm = &page_map[free_page_index];
+			pm->swap_loc = p->swap_loc;
+			pm->vaddr = (p->user_stack - PAGE_SIZE * i) & PE_BASE_ADDR_MASK;
+			pm->dir_addr = pm_dir->paddr;
+			init_ptab_entry(pm_tab->paddr, pm->vaddr, pm->paddr, (PE_P | PE_RW | PE_US));
+		}
+		p->page_directory = pm_dir->paddr;
 	}
+static int err_print = 2;
+scrprintf(5, err_print, "%d", err_print);
+err_print += 2;
 }
 
 /* TODO: Swap into a free page upon a page fault.
@@ -224,7 +251,7 @@ void setup_page_table(pcb_t * p){
  * Should handle demand paging.
  */
 void page_fault_handler(void){
-	enter_critical();
+	lock_acquire(&l);
 
 	current_running->page_fault_count++;
 
@@ -236,13 +263,17 @@ void page_fault_handler(void){
 		ASSERT2(0, "page table full");
 		page_index = page_replacement_policy();
 		page_swap_out(page_index);
+		set_ptab_entry_flags(page_map[page_index].dir_addr, pm->vaddr, 0);
 	}
 	pm = &page_map[page_index];
 	pm->swap_loc = current_running->swap_loc;
 	pm->vaddr = current_running->fault_addr;
+	init_ptab_entry((pm->dir_addr[get_dir_idx(pm->vaddr)] & PE_BASE_ADDR_MASK), pm->vaddr, pm->paddr, (PE_P | PE_US | PE_RW));
 	page_swap_in(page_index);
 
-	leave_critical();
+	pm->dir_addr = current_running->page_directory;
+
+	lock_release(&l);
 }
 
 /* Get the sector number on disk of a process image
