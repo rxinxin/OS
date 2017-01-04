@@ -1,0 +1,9 @@
+---- SCREEN_ADDR Matches (2 in 2 files) ----
+common.h:15
+#define SCREEN_ADDR 0xb8000
+
+/* Function alias */
+util.c:14
+short *screen = (short *)SCREEN_ADDR;
+
+/* 
