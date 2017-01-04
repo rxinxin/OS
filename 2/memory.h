@@ -52,6 +52,7 @@ enum {
 typedef struct page_map_entry_t{
 	uint32_t vaddr;
 	uint32_t *paddr;
+	uint32_t *dir_addr; // the pythical address of page directory
 	uint32_t swap_loc;
 	bool_t pinned;
 	bool_t used;

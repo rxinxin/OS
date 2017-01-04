@@ -1,3 +1,4 @@
+#gdbstub: enabled=1, port=1111, text_base=0, data_base=0, bss_base=0
 
 # Configuration file for bochs.
 #
